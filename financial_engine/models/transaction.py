@@ -21,6 +21,10 @@ class Transaction(db.Model):
     reverses_transaction_id = db.Column(
         db.String(36), db.ForeignKey("transactions.id"), nullable=True, index=True
     )
+    # For deposits initiated against a real payment provider: the provider's
+    # own reference (MoMo X-Reference-Id / Orange pay_token), used to map an
+    # incoming provider webhook back to this transaction. NULL otherwise.
+    provider_reference = db.Column(db.String(255), nullable=True, index=True)
     metadata_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(
         db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)

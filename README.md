@@ -169,6 +169,26 @@ Per-currency totals:
 
 Exchange rates are provided by a stub service (easily replaceable with a real API).
 
+## Payment Provider Integration (Deposits)
+
+Deposits route through a pluggable provider layer under `financial_engine/providers/`. Every client implements `PaymentProviderClientInterface` (`initiate_payment`, `get_payment_status`, `verify_webhook`, `parse_webhook`) and maps its provider-specific status codes onto a normalized `PaymentStatus`.
+
+Implemented clients:
+- **`MomoClient`** — MTN Mobile Money Collections (Request to Pay): OAuth token, push prompt to the payer phone, status polling, HMAC webhook verification.
+- **`OmClient`** — Orange Money Web Payment: `client_credentials` token, `webpayment` returning a redirect `payment_url` + `notif_token`, transaction-status lookup, `notif_token` webhook verification.
+
+`PaymentGateway.get_client(provider)` resolves a configured client by name (`mtn`→MoMo, `orange`→Orange), or returns `None` for **simulation mode** when credentials are absent (local dev/tests, and providers without a client such as stripe/paypal).
+
+Mobile-money providers (`mtn`, `orange`) **require** a `payer` MSISDN on `POST /deposits` (`400` otherwise); card/redirect providers (`stripe`, `paypal`) do not.
+
+Deposit flow with a real provider:
+1. `POST /deposits` (with `payer` MSISDN) → `initiate_payment` → the provider reference and `payment_url` are persisted on the transaction; the initiated amount is recorded.
+2. The provider calls `POST /payments/webhook`. The body is **never trusted to credit on its own**: the handler verifies the webhook, then **re-queries `get_payment_status`**, and only confirms the deposit when the provider reports `SUCCESSFUL`.
+
+Hardening applied to confirmation:
+- The transaction row is **locked and its status re-checked under the lock**, so concurrent/duplicate webhooks can never double-credit.
+- The confirmed amount is **validated against the initiated amount** (`422` on mismatch), so a webhook cannot inflate a deposit.
+
 ## Notifications
 
 Domain events trigger notifications via:
@@ -185,7 +205,7 @@ Events handled: `TransferCompleted`, `TransferFailed`, `DepositCompleted`.
 | Balance cache (Redis, write-through invalidation) | Fast reads; cache miss falls back to ledger. In-process fallback when no `REDIS_URL`, so a single-process dev/test run isn't shared across workers |
 | In-process event bus | Simple, synchronous; replace with message broker (RabbitMQ/Kafka) for scale |
 | Snapshot every 100 entries | Balances writes vs read performance; tunable threshold |
-| Stub payment providers | Always return success; integration tests need real provider sandboxes |
+| Provider clients with simulation fallback | Real MoMo/Orange clients are used when credentials are configured; otherwise deposits run in simulation mode (webhook carries the txn id) so dev/tests need no credentials or network |
 | Decimal(19,4) precision | Covers most currencies; some crypto may need higher precision |
 
 ## Setup & Running
@@ -246,10 +266,15 @@ financial_engine/
 │   ├── balance_cache.py        # Redis/in-memory balance cache layer
 │   ├── transfer_service.py     # Transfer orchestration
 │   ├── transaction_service.py  # Reversal via compensating transactions
-│   ├── deposit_service.py      # Deposit flow
+│   ├── deposit_service.py      # Deposit flow (provider-wired)
+│   ├── payment_gateway.py      # Provider resolution + simulation fallback
 │   ├── fx_service.py           # Foreign exchange
 │   ├── notification_service.py # Email/SMS notifications
-│   └── payment_provider.py     # Payment provider stubs
+│   └── payment_provider.py     # Simulation stub (used when no provider configured)
+├── providers/                  # Third-party payment provider clients
+│   ├── base.py                 # PaymentProviderClientInterface + DTOs
+│   ├── momo/                   # MTN Mobile Money (Request to Pay)
+│   └── om/                     # Orange Money (Web Payment)
 └── tests/                      # Test suite
     ├── test_balance.py
     ├── test_balance_cache.py

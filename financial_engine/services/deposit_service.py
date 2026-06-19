@@ -8,7 +8,8 @@ from financial_engine.models.transaction import Transaction
 from financial_engine.models.ledger_entry import LedgerEntry
 from financial_engine.services.balance_service import BalanceService
 from financial_engine.services.balance_cache import balance_cache
-from financial_engine.domain.exceptions import AccountNotFoundError
+from financial_engine.services.payment_gateway import PaymentGateway
+from financial_engine.providers.base import PaymentProviderError, PaymentRequest
 from financial_engine.domain.value_objects import Money
 from financial_engine.domain.events import (
     DomainEvent,
@@ -16,7 +17,12 @@ from financial_engine.domain.events import (
     DEPOSIT_COMPLETED,
     DEPOSIT_INITIATED,
 )
-from financial_engine.domain.exceptions import TransactionNotFoundError, InvalidTransactionStateError
+from financial_engine.domain.exceptions import (
+    AccountNotFoundError,
+    TransactionNotFoundError,
+    InvalidTransactionStateError,
+    DepositAmountMismatchError,
+)
 
 
 # The platform clearing account is a special internal account
@@ -47,8 +53,16 @@ class DepositService:
         amount: Decimal,
         provider: str = "stripe",
         correlation_id: str | None = None,
+        payer: str | None = None,
     ) -> Transaction:
-        """Create a pending deposit transaction."""
+        """Create a pending deposit transaction.
+
+        When the named provider is configured, the collection is requested
+        from the provider (push prompt for MoMo, redirect URL for Orange) and
+        the provider reference / payment URL are persisted on the transaction.
+        Otherwise the deposit is created in simulation mode (confirmed later by
+        a webhook carrying the transaction id directly).
+        """
         account = db.session.get(Account, account_id)
         if not account:
             raise AccountNotFoundError(account_id)
@@ -57,15 +71,57 @@ class DepositService:
         if not deposit_money.is_positive():
             raise ValueError("Deposit amount must be positive")
 
+        # Mobile-money providers collect from the customer's wallet and require
+        # the payer's phone number to initiate the request-to-pay / web payment.
+        if PaymentGateway.requires_payer(provider) and not payer:
+            raise ValueError(
+                f"payer (MSISDN) is required for mobile-money provider '{provider}'"
+            )
+
         corr_id = correlation_id or str(uuid.uuid4())
+
+        # The initiated amount is persisted so the confirming webhook can be
+        # validated against it (the webhook must not be able to alter it).
+        meta = {
+            "provider": provider,
+            "account_id": account_id,
+            "amount": str(deposit_money.amount),
+            "currency": deposit_money.currency,
+            "payer": payer,
+        }
 
         txn = Transaction(
             type="DEPOSIT",
             status="PENDING",
             correlation_id=corr_id,
-            metadata_json=f'{{"provider": "{provider}", "account_id": "{account_id}"}}',
         )
         db.session.add(txn)
+        db.session.flush()  # assign txn.id for use as the provider's order/external id
+
+        client = PaymentGateway.get_client(provider)
+        if client is not None:
+            try:
+                result = client.initiate_payment(
+                    PaymentRequest(
+                        amount=deposit_money.amount,
+                        currency=deposit_money.currency,
+                        customer_reference=payer or "",
+                        transaction_reference=txn.id,
+                        description="Wallet deposit",
+                    )
+                )
+            except PaymentProviderError:
+                db.session.rollback()
+                raise
+
+            txn.provider_reference = result.provider_reference
+            meta["provider_reference"] = result.provider_reference
+            meta["payment_url"] = result.payment_url
+            notif_token = (result.raw or {}).get("notif_token")
+            if notif_token:
+                meta["notif_token"] = notif_token
+
+        txn.metadata_json = json.dumps(meta)
         db.session.commit()
 
         event_bus.publish(
@@ -89,8 +145,20 @@ class DepositService:
         transaction_id: str,
         amount: Decimal,
     ) -> Transaction:
-        """Confirm a deposit (called when webhook confirms payment)."""
-        txn = db.session.get(Transaction, transaction_id)
+        """Confirm a deposit (called when a webhook confirms payment).
+
+        The transaction row is locked and its status re-checked under the lock,
+        so two concurrent/duplicate webhook deliveries can never both credit the
+        account. The confirmed amount is validated against the amount persisted
+        at initiation, so a webhook cannot inflate the deposit.
+        """
+        # Lock the transaction row first, then re-check status under the lock.
+        txn = (
+            db.session.query(Transaction)
+            .filter_by(id=transaction_id)
+            .with_for_update()
+            .first()
+        )
         if not txn:
             raise TransactionNotFoundError(transaction_id)
 
@@ -99,6 +167,13 @@ class DepositService:
 
         meta = json.loads(txn.metadata_json) if txn.metadata_json else {}
         account_id = meta.get("account_id")
+
+        # Validate the confirmed amount against what was initiated.
+        initiated = meta.get("amount")
+        if initiated is not None and Decimal(str(amount)) != Decimal(str(initiated)):
+            raise DepositAmountMismatchError(
+                transaction_id, str(initiated), str(amount)
+            )
 
         account = db.session.query(Account).filter_by(id=account_id).with_for_update().first()
         if not account:
@@ -150,4 +225,23 @@ class DepositService:
             )
         )
 
+        return txn
+
+    @staticmethod
+    def fail_deposit(transaction_id: str) -> Transaction:
+        """Mark a pending deposit as FAILED (provider reported failure/expiry)."""
+        txn = (
+            db.session.query(Transaction)
+            .filter_by(id=transaction_id)
+            .with_for_update()
+            .first()
+        )
+        if not txn:
+            raise TransactionNotFoundError(transaction_id)
+
+        if txn.status != "PENDING":
+            raise InvalidTransactionStateError(transaction_id, txn.status, "FAILED")
+
+        txn.status = "FAILED"
+        db.session.commit()
         return txn

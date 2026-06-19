@@ -55,3 +55,12 @@ class DuplicateAccountError(DomainError):
             f"Account already exists for user {user_id} with currency {currency}",
             code="DUPLICATE_ACCOUNT",
         )
+
+
+class DepositAmountMismatchError(DomainError):
+    def __init__(self, transaction_id: str, expected: str, actual: str):
+        super().__init__(
+            f"Deposit amount mismatch for transaction {transaction_id}: "
+            f"initiated={expected}, confirmed={actual}",
+            code="DEPOSIT_AMOUNT_MISMATCH",
+        )
