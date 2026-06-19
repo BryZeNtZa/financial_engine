@@ -6,6 +6,8 @@ provider selection falls back to logging when Twilio is not configured.
 
 from decimal import Decimal
 
+import pytest
+
 from financial_engine.tests import deposit_funds
 from financial_engine.models.notification import Notification
 from financial_engine.domain.events import (
@@ -54,6 +56,9 @@ class TestSmsProviderSelection:
         assert isinstance(provider, LogSmsProvider)
 
     def test_selects_twilio_when_configured(self):
+        # Selection builds a real TwilioSmsProvider, which imports the twilio
+        # package; skip cleanly when that optional dependency isn't installed.
+        pytest.importorskip("twilio")
         provider = build_sms_provider({
             "TWILIO_ACCOUNT_SID": "AC123",
             "TWILIO_AUTH_TOKEN": "tok",
