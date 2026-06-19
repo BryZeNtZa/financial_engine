@@ -97,6 +97,7 @@ class FXService:
             entry_type="DEBIT",
             status="SUCCESS",
             currency=send_money.currency,
+            correlation_id=corr_id,
         )
         # FX pool credited in source currency
         e2 = LedgerEntry(
@@ -106,6 +107,7 @@ class FXService:
             entry_type="CREDIT",
             status="SUCCESS",
             currency=send_money.currency,
+            correlation_id=corr_id,
         )
         # FX pool debited in target currency
         e3 = LedgerEntry(
@@ -115,6 +117,7 @@ class FXService:
             entry_type="DEBIT",
             status="SUCCESS",
             currency=receive_money.currency,
+            correlation_id=corr_id,
         )
         # Receiver credited in target currency
         e4 = LedgerEntry(
@@ -124,6 +127,7 @@ class FXService:
             entry_type="CREDIT",
             status="SUCCESS",
             currency=receive_money.currency,
+            correlation_id=corr_id,
         )
 
         db.session.add_all([e1, e2, e3, e4])

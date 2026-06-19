@@ -23,6 +23,9 @@ class LedgerEntry(db.Model):
         db.String(20), nullable=False, default="PENDING"
     )  # PENDING, SUCCESS, FAILED
     currency = db.Column(db.String(3), nullable=False)
+    # Distributed tracing: propagated from the API request through the owning
+    # transaction onto every entry, so a full audit trail can be queried by id.
+    correlation_id = db.Column(db.String(36), nullable=True, index=True)
     metadata_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(
         db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)

@@ -77,6 +77,7 @@ class TransferService:
             entry_type="DEBIT",
             status="PENDING",
             currency=transfer_money.currency,
+            correlation_id=txn.correlation_id,
         )
         db.session.add(debit_entry)
 
@@ -170,6 +171,7 @@ class TransferService:
             entry_type="CREDIT",
             status="SUCCESS",
             currency=receiver.currency,
+            correlation_id=txn.correlation_id,
         )
         db.session.add(credit_entry)
 
@@ -251,6 +253,7 @@ class TransferService:
             entry_type="DEBIT",
             status="SUCCESS",
             currency=transfer_money.currency,
+            correlation_id=corr_id,
         )
         credit = LedgerEntry(
             account_id=receiver_account_id,
@@ -259,6 +262,7 @@ class TransferService:
             entry_type="CREDIT",
             status="SUCCESS",
             currency=receiver.currency,
+            correlation_id=corr_id,
         )
         db.session.add_all([debit, credit])
 

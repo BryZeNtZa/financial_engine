@@ -191,6 +191,7 @@ class DepositService:
             entry_type="DEBIT",
             status="SUCCESS",
             currency=deposit_money.currency,
+            correlation_id=txn.correlation_id,
         )
         credit = LedgerEntry(
             account_id=account_id,
@@ -199,6 +200,7 @@ class DepositService:
             entry_type="CREDIT",
             status="SUCCESS",
             currency=deposit_money.currency,
+            correlation_id=txn.correlation_id,
         )
         db.session.add_all([debit, credit])
 

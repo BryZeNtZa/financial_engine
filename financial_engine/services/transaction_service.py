@@ -94,6 +94,7 @@ class TransactionService:
                 entry_type="CREDIT" if entry.entry_type == "DEBIT" else "DEBIT",
                 status="SUCCESS",
                 currency=entry.currency,
+                correlation_id=corr_id,
             )
             db.session.add(inverse)
 
