@@ -8,7 +8,7 @@ A double-entry accounting ledger system built with Flask, implementing a digital
 
 The system **never stores a mutable balance column**. All balances are derived from the ledger:
 
-```
+```sql
 Balance = SUM(amount) FROM ledger_entries WHERE account_id = ? AND status = 'SUCCESS'
 ```
 
@@ -56,9 +56,31 @@ Transactions are **immutable once completed**. Corrections use compensating entr
 
 ## Performance Optimization Strategy
 
+Two complementary layers keep balance reads fast at scale (1M users / 10M entries / 1000 qps, target <10ms): a **cache layer** for hot reads and a **snapshot pattern** that bounds the cost of a cold read.
+
+### Cache Layer
+
+Balance reads follow a cache-aside flow:
+
+```
+API Request
+  ↓
+Cache Lookup        ← balance:{account_id} in Redis
+  ↓ (miss)
+Ledger Calculation  ← snapshot + delta (see below)
+  ↓
+Cache Update        ← store with TTL
+```
+
+- Backed by **Redis** when `REDIS_URL` is configured; otherwise falls back to an in-process store, so the app and test suite run with no external dependency.
+- The **ledger stays the source of truth**: any write that changes an account's settled balance (transfer, deposit, FX) invalidates its cache key, so the next read recomputes.
+- `available_balance` is derived as `cached_settled_balance + SUM(pending debits)`, where the pending set is tiny — so even the available balance avoids the large ledger scan.
+
+Configured via `REDIS_URL`, `BALANCE_CACHE_ENABLED`, `BALANCE_CACHE_TTL`.
+
 ### Snapshot Pattern
 
-Balance computation is optimized via periodic snapshots:
+On a cache miss, balance computation is optimized via periodic snapshots:
 
 ```
 BalanceSnapshot { account_id, balance, entry_count, snapshot_at }
@@ -150,12 +172,22 @@ Events handled: `TransferCompleted`, `TransferFailed`, `DepositCompleted`.
 | Decision | Tradeoff |
 |----------|----------|
 | SQLite default | Simple setup but no true `SELECT FOR UPDATE`; swap to PostgreSQL for production |
+| Balance cache (Redis, write-through invalidation) | Fast reads; cache miss falls back to ledger. In-process fallback when no `REDIS_URL`, so a single-process dev/test run isn't shared across workers |
 | In-process event bus | Simple, synchronous; replace with message broker (RabbitMQ/Kafka) for scale |
 | Snapshot every 100 entries | Balances writes vs read performance; tunable threshold |
 | Stub payment providers | Always return success; integration tests need real provider sandboxes |
 | Decimal(19,4) precision | Covers most currencies; some crypto may need higher precision |
 
 ## Setup & Running
+
+```bash
+# Create a virtual environment
+python3 -m venv .venv
+
+# activate the project Venv
+source .venv/bin/activate # Linix
+.venv\Scripts\activate.bat # Windows
+```
 
 ```bash
 # Install dependencies
@@ -200,6 +232,7 @@ financial_engine/
 │   └── notification.py
 ├── services/                   # Business logic
 │   ├── balance_service.py      # Ledger-based balance computation
+│   ├── balance_cache.py        # Redis/in-memory balance cache layer
 │   ├── transfer_service.py     # Transfer orchestration
 │   ├── deposit_service.py      # Deposit flow
 │   ├── fx_service.py           # Foreign exchange
@@ -207,6 +240,7 @@ financial_engine/
 │   └── payment_provider.py     # Payment provider stubs
 └── tests/                      # Test suite
     ├── test_balance.py
+    ├── test_balance_cache.py
     ├── test_transfers.py
     ├── test_deposits.py
     ├── test_idempotency.py

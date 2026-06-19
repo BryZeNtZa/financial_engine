@@ -4,6 +4,7 @@ from financial_engine import create_app
 from financial_engine.extensions import db as _db
 from financial_engine.models.account import Account
 from financial_engine.domain.events import event_bus
+from financial_engine.services.balance_cache import balance_cache
 
 
 @pytest.fixture(scope="session")
@@ -27,8 +28,9 @@ def db(app):
         _db.session.rollback()
         _db.drop_all()
 
-    # Clear event bus between tests
+    # Clear event bus and balance cache between tests
     event_bus.clear()
+    balance_cache.clear()
 
 
 @pytest.fixture

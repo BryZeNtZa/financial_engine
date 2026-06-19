@@ -5,6 +5,7 @@ flask-migrate==4.1.0
 marshmallow==3.23.2
 python-dotenv==1.0.1
 requests>=2.31.0
+redis>=5.0.0
 gunicorn>=22.0.0
 pytest==8.3.4
 pytest-cov==6.0.0

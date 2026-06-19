@@ -23,6 +23,10 @@ def create_app(test_config=None):
     db.init_app(app)
     migrate.init_app(app, db)
 
+    # Init balance cache (Redis if configured, else in-memory fallback)
+    from financial_engine.services.balance_cache import balance_cache
+    balance_cache.init_app(app)
+
     # Register tracing middleware
     from financial_engine.middleware.tracing import init_tracing
     init_tracing(app)

@@ -7,6 +7,7 @@ from financial_engine.models.account import Account
 from financial_engine.models.transaction import Transaction
 from financial_engine.models.ledger_entry import LedgerEntry
 from financial_engine.services.balance_service import BalanceService
+from financial_engine.services.balance_cache import balance_cache
 from financial_engine.domain.exceptions import (
     AccountNotFoundError,
     InsufficientFundsError,
@@ -184,6 +185,9 @@ class TransferService:
 
         db.session.commit()
 
+        # Settled balances changed — evict cached values.
+        balance_cache.invalidate_many(debit_entry.account_id, receiver_account_id)
+
         event_bus.publish(
             DomainEvent(
                 TRANSFER_COMPLETED,
@@ -267,6 +271,9 @@ class TransferService:
         BalanceService.maybe_create_snapshot(receiver_account_id)
 
         db.session.commit()
+
+        # Settled balances changed — evict cached values.
+        balance_cache.invalidate_many(sender_account_id, receiver_account_id)
 
         event_bus.publish(
             DomainEvent(

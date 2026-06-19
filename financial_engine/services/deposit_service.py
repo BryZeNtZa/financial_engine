@@ -7,6 +7,7 @@ from financial_engine.models.account import Account
 from financial_engine.models.transaction import Transaction
 from financial_engine.models.ledger_entry import LedgerEntry
 from financial_engine.services.balance_service import BalanceService
+from financial_engine.services.balance_cache import balance_cache
 from financial_engine.domain.exceptions import AccountNotFoundError
 from financial_engine.domain.value_objects import Money
 from financial_engine.domain.events import (
@@ -132,6 +133,9 @@ class DepositService:
         BalanceService.maybe_create_snapshot(account_id)
 
         db.session.commit()
+
+        # Settled balances changed — evict cached values.
+        balance_cache.invalidate_many(account_id, clearing.id)
 
         event_bus.publish(
             DomainEvent(

@@ -6,6 +6,7 @@ from financial_engine.models.account import Account
 from financial_engine.models.transaction import Transaction
 from financial_engine.models.ledger_entry import LedgerEntry
 from financial_engine.services.balance_service import BalanceService
+from financial_engine.services.balance_cache import balance_cache
 from financial_engine.services.fx_rate_provider import fx_rate_provider
 from financial_engine.domain.value_objects import Money
 from financial_engine.domain.exceptions import (
@@ -134,6 +135,11 @@ class FXService:
         BalanceService.maybe_create_snapshot(receiver_account_id)
 
         db.session.commit()
+
+        # Settled balances changed across all four legs — evict cached values.
+        balance_cache.invalidate_many(
+            sender_account_id, receiver_account_id, from_pool.id, to_pool.id
+        )
 
         event_bus.publish(
             DomainEvent(

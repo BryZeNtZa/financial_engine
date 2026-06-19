@@ -6,6 +6,7 @@ from financial_engine.extensions import db as _db
 from financial_engine.models.account import Account
 from financial_engine.domain.events import event_bus
 from financial_engine.services.fx_rate_provider import fx_rate_provider
+from financial_engine.services.balance_cache import balance_cache
 
 # Deterministic rates used across all tests (base: EUR)
 TEST_FX_RATES = {
@@ -48,9 +49,10 @@ def db(app):
         _db.session.rollback()
         _db.drop_all()
 
-    # Clear event bus and rate cache between tests
+    # Clear event bus, rate cache and balance cache between tests
     event_bus.clear()
     fx_rate_provider.clear_cache()
+    balance_cache.clear()
 
 
 @pytest.fixture
