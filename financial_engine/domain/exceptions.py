@@ -57,6 +57,15 @@ class DuplicateAccountError(DomainError):
         )
 
 
+class LedgerImbalanceError(DomainError):
+    def __init__(self, transaction_id: str, currency: str, total: str):
+        super().__init__(
+            f"Ledger entries for transaction {transaction_id} do not balance "
+            f"in {currency}: sum={total} (must be 0)",
+            code="LEDGER_IMBALANCE",
+        )
+
+
 class DepositAmountMismatchError(DomainError):
     def __init__(self, transaction_id: str, expected: str, actual: str):
         super().__init__(

@@ -4,14 +4,13 @@ from decimal import Decimal
 from financial_engine.extensions import db
 from financial_engine.models.account import Account
 from financial_engine.models.transaction import Transaction
-from financial_engine.models.ledger_entry import LedgerEntry
+from financial_engine.domain.aggregates import TransactionAggregate, AccountAggregate
 from financial_engine.services.balance_service import BalanceService
 from financial_engine.services.balance_cache import balance_cache
 from financial_engine.services.fx_rate_provider import fx_rate_provider
 from financial_engine.domain.value_objects import Money
 from financial_engine.domain.exceptions import (
     AccountNotFoundError,
-    InsufficientFundsError,
 )
 from financial_engine.domain.events import DomainEvent, event_bus, TRANSFER_COMPLETED
 
@@ -53,13 +52,16 @@ class FXService:
         correlation_id: str | None = None,
     ) -> Transaction:
         """Cross-currency transfer through FX pool. Ledger still balances to zero."""
-        sender = db.session.query(Account).filter_by(id=sender_account_id).with_for_update().first()
-        if not sender:
+        sender_row = db.session.query(Account).filter_by(id=sender_account_id).with_for_update().first()
+        if not sender_row:
             raise AccountNotFoundError(sender_account_id)
 
-        receiver = db.session.get(Account, receiver_account_id)
-        if not receiver:
+        receiver_row = db.session.get(Account, receiver_account_id)
+        if not receiver_row:
             raise AccountNotFoundError(receiver_account_id)
+
+        sender = AccountAggregate(sender_row)
+        receiver = AccountAggregate(receiver_row)
 
         if sender.currency == receiver.currency:
             raise ValueError("Use regular transfer for same-currency transfers")
@@ -67,12 +69,9 @@ class FXService:
         send_money = Money(amount, sender.currency)
         if not send_money.is_positive():
             raise ValueError("Transfer amount must be positive")
-
-        available = BalanceService.get_available_balance(sender_account_id)
-        if available < send_money:
-            raise InsufficientFundsError(
-                sender_account_id, str(available.amount), str(send_money.amount)
-            )
+        sender.assert_sufficient(
+            BalanceService.get_available_balance(sender_account_id), send_money
+        )
 
         receive_money = cls.convert_money(send_money, receiver.currency)
 
@@ -81,60 +80,18 @@ class FXService:
 
         corr_id = correlation_id or str(uuid.uuid4())
 
-        txn = Transaction(
-            type="FX_TRANSFER",
-            status="SUCCESS",
-            correlation_id=corr_id,
+        # Four-legged FX transfer through the pools; balances to zero per currency.
+        txn = TransactionAggregate.open(
+            type="FX_TRANSFER", correlation_id=corr_id, status="SUCCESS"
         )
-        db.session.add(txn)
-        db.session.flush()
+        txn.debit(sender_account_id, send_money)     # sender -X (source)
+        txn.credit(from_pool.id, send_money)         # FX pool +X (source)
+        txn.debit(to_pool.id, receive_money)         # FX pool -Y (target)
+        txn.credit(receiver_account_id, receive_money)  # receiver +Y (target)
+        txn.assert_balanced()
 
-        # Sender debited in source currency
-        e1 = LedgerEntry(
-            account_id=sender_account_id,
-            transaction_id=txn.id,
-            amount=-send_money.amount,
-            entry_type="DEBIT",
-            status="SUCCESS",
-            currency=send_money.currency,
-            correlation_id=corr_id,
-        )
-        # FX pool credited in source currency
-        e2 = LedgerEntry(
-            account_id=from_pool.id,
-            transaction_id=txn.id,
-            amount=send_money.amount,
-            entry_type="CREDIT",
-            status="SUCCESS",
-            currency=send_money.currency,
-            correlation_id=corr_id,
-        )
-        # FX pool debited in target currency
-        e3 = LedgerEntry(
-            account_id=to_pool.id,
-            transaction_id=txn.id,
-            amount=-receive_money.amount,
-            entry_type="DEBIT",
-            status="SUCCESS",
-            currency=receive_money.currency,
-            correlation_id=corr_id,
-        )
-        # Receiver credited in target currency
-        e4 = LedgerEntry(
-            account_id=receiver_account_id,
-            transaction_id=txn.id,
-            amount=receive_money.amount,
-            entry_type="CREDIT",
-            status="SUCCESS",
-            currency=receive_money.currency,
-            correlation_id=corr_id,
-        )
-
-        db.session.add_all([e1, e2, e3, e4])
-
-        sender.version += 1
-        receiver.version += 1
-
+        sender.touch()
+        receiver.touch()
         BalanceService.maybe_create_snapshot(sender_account_id)
         BalanceService.maybe_create_snapshot(receiver_account_id)
 
@@ -161,4 +118,4 @@ class FXService:
             )
         )
 
-        return txn
+        return txn.transaction

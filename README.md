@@ -32,7 +32,9 @@ Data Layer (SQLAlchemy)        ← Models, database access
 
 - **Value Objects**: `Money` — immutable, uses `Decimal` (never float), enforces currency matching
 - **Entities**: `Account`, `Transaction`, `LedgerEntry`, `BalanceSnapshot`
-- **Aggregates**: Account (with entries + snapshots), Transaction (with entries)
+- **Aggregates** (`domain/aggregates.py`) — own the invariants so they can't be bypassed:
+  - **`TransactionAggregate`** is the consistency boundary for a transaction and its entries. It owns entry creation (propagating `correlation_id`), the **double-entry invariant** (`assert_balanced` — SUCCESS entries sum to zero *per currency*), and the **state machine** (`PENDING → SUCCESS/FAILED`, `SUCCESS → REVERSED`). Services call `record_double_entry` / `debit` / `credit` / `mark_success` instead of hand-assembling `LedgerEntry` rows.
+  - **`AccountAggregate`** is a thin root owning the optimistic-lock `version` (`touch()`), the funds-availability check (`assert_sufficient`), and currency matching (`assert_same_currency_as`). It deliberately does **not** hold the account's ledger entries — balances are derived/projected, so loading millions of rows into the aggregate would defeat the performance design.
 - **Domain Events**: `FundsReserved`, `TransferCompleted`, `TransferFailed`, `DepositCompleted` — published via in-process event bus and consumed by `NotificationService`
 
 ### Two-Phase Transfers (Reservation System)

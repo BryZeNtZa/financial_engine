@@ -1,10 +1,10 @@
-import json
 import uuid
 
 from financial_engine.extensions import db
 from financial_engine.models.account import Account
 from financial_engine.models.transaction import Transaction
 from financial_engine.models.ledger_entry import LedgerEntry
+from financial_engine.domain.aggregates import TransactionAggregate, AccountAggregate
 from financial_engine.services.balance_service import BalanceService
 from financial_engine.services.balance_cache import balance_cache
 from financial_engine.domain.exceptions import (
@@ -47,10 +47,11 @@ class TransactionService:
         funds-availability check — they must always succeed to keep the ledger
         consistent (a clawback may legitimately push a balance negative).
         """
-        original = db.session.get(Transaction, transaction_id)
-        if not original:
+        original_row = db.session.get(Transaction, transaction_id)
+        if not original_row:
             raise TransactionNotFoundError(transaction_id)
 
+        original = TransactionAggregate.load(original_row)
         if original.status != "SUCCESS":
             # SUCCESS is the only state from which a reversal is valid.
             raise InvalidTransactionStateError(
@@ -73,38 +74,34 @@ class TransactionService:
 
         corr_id = correlation_id or original.correlation_id or str(uuid.uuid4())
 
-        reversal = Transaction(
+        reversal = TransactionAggregate.open(
             type="REVERSAL",
-            status="SUCCESS",
             correlation_id=corr_id,
+            status="SUCCESS",
             reverses_transaction_id=original.id,
-            metadata_json=json.dumps({"reverses_transaction_id": original.id}),
+            metadata={"reverses_transaction_id": original.id},
         )
-        db.session.add(reversal)
-        db.session.flush()
 
         # Inverse of every original entry: flip the sign and the DEBIT/CREDIT
         # type. Amounts are stored signed, so -amount with the opposite type
         # keeps the convention consistent and nets the account back to zero.
         for entry in original_entries:
-            inverse = LedgerEntry(
+            reversal.add_entry(
                 account_id=entry.account_id,
-                transaction_id=reversal.id,
                 amount=-entry.amount,
                 entry_type="CREDIT" if entry.entry_type == "DEBIT" else "DEBIT",
-                status="SUCCESS",
                 currency=entry.currency,
-                correlation_id=corr_id,
+                status="SUCCESS",
             )
-            db.session.add(inverse)
+        reversal.assert_balanced()
 
         # Terminal, documented transition. Original entries are left untouched.
-        original.status = "REVERSED"
+        original.mark_reversed()
 
         for account_id in affected_account_ids:
             account = db.session.get(Account, account_id)
             if account:
-                account.version += 1
+                AccountAggregate(account).touch()
             BalanceService.maybe_create_snapshot(account_id)
 
         db.session.commit()
@@ -118,11 +115,11 @@ class TransactionService:
                 {
                     "transaction_id": original.id,
                     "reversal_transaction_id": reversal.id,
-                    "type": original.type,
+                    "type": original.transaction.type,
                     "affected_account_ids": affected_account_ids,
                 },
                 correlation_id=corr_id,
             )
         )
 
-        return reversal
+        return reversal.transaction

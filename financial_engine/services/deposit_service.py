@@ -5,7 +5,7 @@ from decimal import Decimal
 from financial_engine.extensions import db
 from financial_engine.models.account import Account
 from financial_engine.models.transaction import Transaction
-from financial_engine.models.ledger_entry import LedgerEntry
+from financial_engine.domain.aggregates import TransactionAggregate, AccountAggregate
 from financial_engine.services.balance_service import BalanceService
 from financial_engine.services.balance_cache import balance_cache
 from financial_engine.services.payment_gateway import PaymentGateway
@@ -90,13 +90,10 @@ class DepositService:
             "payer": payer,
         }
 
-        txn = Transaction(
-            type="DEPOSIT",
-            status="PENDING",
-            correlation_id=corr_id,
+        agg = TransactionAggregate.open(
+            type="DEPOSIT", correlation_id=corr_id, status="PENDING"
         )
-        db.session.add(txn)
-        db.session.flush()  # assign txn.id for use as the provider's order/external id
+        txn = agg.transaction
 
         client = PaymentGateway.get_client(provider)
         if client is not None:
@@ -175,37 +172,24 @@ class DepositService:
                 transaction_id, str(initiated), str(amount)
             )
 
-        account = db.session.query(Account).filter_by(id=account_id).with_for_update().first()
-        if not account:
+        account_row = db.session.query(Account).filter_by(id=account_id).with_for_update().first()
+        if not account_row:
             raise AccountNotFoundError(account_id)
+        account = AccountAggregate(account_row)
 
         clearing = DepositService.get_or_create_clearing_account(account.currency)
-
         deposit_money = Money(amount, account.currency)
 
-        # Create balanced ledger entries
-        debit = LedgerEntry(
-            account_id=clearing.id,
-            transaction_id=txn.id,
-            amount=-deposit_money.amount,
-            entry_type="DEBIT",
-            status="SUCCESS",
-            currency=deposit_money.currency,
-            correlation_id=txn.correlation_id,
+        # Balanced ledger entries: Platform Clearing -X / User +X.
+        agg = TransactionAggregate.load(txn)
+        agg.record_double_entry(
+            debit_account_id=clearing.id,
+            credit_account_id=account_id,
+            money=deposit_money,
         )
-        credit = LedgerEntry(
-            account_id=account_id,
-            transaction_id=txn.id,
-            amount=deposit_money.amount,
-            entry_type="CREDIT",
-            status="SUCCESS",
-            currency=deposit_money.currency,
-            correlation_id=txn.correlation_id,
-        )
-        db.session.add_all([debit, credit])
-
-        txn.status = "SUCCESS"
-        account.version += 1
+        agg.mark_success()
+        agg.assert_balanced()
+        account.touch()
 
         BalanceService.maybe_create_snapshot(account_id)
 
