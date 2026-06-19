@@ -59,6 +59,7 @@ def _register_event_handlers(app):
         TRANSFER_COMPLETED,
         TRANSFER_FAILED,
         DEPOSIT_COMPLETED,
+        TRANSACTION_REVERSED,
     )
     from financial_engine.services.notification_service import NotificationService
 
@@ -66,6 +67,7 @@ def _register_event_handlers(app):
     event_bus.subscribe(TRANSFER_COMPLETED, notifier.handle_transfer_completed)
     event_bus.subscribe(TRANSFER_FAILED, notifier.handle_transfer_failed)
     event_bus.subscribe(DEPOSIT_COMPLETED, notifier.handle_deposit_completed)
+    event_bus.subscribe(TRANSACTION_REVERSED, notifier.handle_transaction_reversed)
 
 
 def _register_error_handlers(app):

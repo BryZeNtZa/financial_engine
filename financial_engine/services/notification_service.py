@@ -117,3 +117,14 @@ class NotificationService:
             body=f"Transfer {txn_id} failed.",
             correlation_id=event.correlation_id,
         )
+
+    def handle_transaction_reversed(self, event: DomainEvent):
+        payload = event.payload
+        txn_id = payload.get("transaction_id", "")
+
+        self.send_sms(
+            user_id="unknown",
+            recipient="stub-phone",
+            body=f"Transaction {txn_id} was reversed.",
+            correlation_id=event.correlation_id,
+        )

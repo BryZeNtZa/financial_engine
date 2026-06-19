@@ -52,7 +52,16 @@ PENDING  →  FAILED    (reject / timeout)
 SUCCESS  →  REVERSED  (compensating transaction)
 ```
 
-Transactions are **immutable once completed**. Corrections use compensating entries.
+Transactions are **immutable once completed**. Corrections are made through **compensating transactions**, never by editing settled records.
+
+### Reversal (Compensating Transactions)
+
+`POST /transactions/{id}/reverse` reverses a settled (`SUCCESS`) transaction:
+
+- A new `REVERSAL` transaction is created whose ledger entries are the exact **inverse** of the original's (sign flipped, `DEBIT`↔`CREDIT`), restoring affected balances. These compensating entries sum to zero, so the double-entry invariant holds.
+- The original transaction and its entries are **never mutated** — the only change is the terminal `SUCCESS → REVERSED` status flag. `reverses_transaction_id` links the compensating transaction back to the original for audit.
+- Guards: only `SUCCESS` transactions can be reversed (a `PENDING` transfer is cancelled via `/fail`; an already-`REVERSED`/`FAILED` one returns `409`), which also prevents double-reversal.
+- Reversals are administrative corrections and intentionally skip the funds-availability check, so a clawback always succeeds (and may push a balance negative, representing a debt).
 
 ## Performance Optimization Strategy
 
@@ -109,6 +118,7 @@ Composite indexes on:
 | POST   | `/api/v1/transfers/initiate`          | Phase 1: Reserve funds             |
 | POST   | `/api/v1/transfers/{id}/commit`       | Phase 2: Commit transfer           |
 | POST   | `/api/v1/transfers/{id}/fail`         | Fail pending transfer              |
+| POST   | `/api/v1/transactions/{id}/reverse`   | Reverse a settled txn (compensating) |
 | POST   | `/api/v1/deposits`                    | Initiate deposit                   |
 | POST   | `/api/v1/payments/webhook`            | Payment provider webhook           |
 | GET    | `/api/v1/fx/rate`                     | Get exchange rate                  |
@@ -213,6 +223,7 @@ financial_engine/
 ├── api/                        # REST API layer (Flask-RESTX)
 │   ├── accounts.py
 │   ├── transfers.py
+│   ├── transactions.py         # Reversal (compensating transactions)
 │   ├── deposits.py
 │   ├── webhooks.py
 │   └── fx.py
@@ -234,6 +245,7 @@ financial_engine/
 │   ├── balance_service.py      # Ledger-based balance computation
 │   ├── balance_cache.py        # Redis/in-memory balance cache layer
 │   ├── transfer_service.py     # Transfer orchestration
+│   ├── transaction_service.py  # Reversal via compensating transactions
 │   ├── deposit_service.py      # Deposit flow
 │   ├── fx_service.py           # Foreign exchange
 │   ├── notification_service.py # Email/SMS notifications
@@ -242,6 +254,7 @@ financial_engine/
     ├── test_balance.py
     ├── test_balance_cache.py
     ├── test_transfers.py
+    ├── test_reversal.py
     ├── test_deposits.py
     ├── test_idempotency.py
     ├── test_concurrency.py

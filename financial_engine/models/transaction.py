@@ -10,12 +10,17 @@ class Transaction(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     type = db.Column(
         db.String(20), nullable=False
-    )  # TRANSFER, DEPOSIT, FX_TRANSFER
+    )  # TRANSFER, DEPOSIT, FX_TRANSFER, REVERSAL
     status = db.Column(
         db.String(20), nullable=False, default="PENDING"
     )  # PENDING, SUCCESS, FAILED, REVERSED
     reference = db.Column(db.String(100), nullable=True, unique=True)
     correlation_id = db.Column(db.String(36), nullable=True, index=True)
+    # For compensating (REVERSAL) transactions: points to the original
+    # transaction being reversed. NULL for ordinary transactions.
+    reverses_transaction_id = db.Column(
+        db.String(36), db.ForeignKey("transactions.id"), nullable=True, index=True
+    )
     metadata_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(
         db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
