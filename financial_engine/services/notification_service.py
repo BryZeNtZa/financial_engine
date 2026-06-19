@@ -3,34 +3,28 @@ import logging
 from financial_engine.extensions import db
 from financial_engine.models.notification import Notification
 from financial_engine.domain.events import DomainEvent
+from financial_engine.services.sms_provider import build_sms_provider
+from financial_engine.services.email_provider import build_email_provider
 
 logger = logging.getLogger(__name__)
 
 
-class EmailProvider:
-    """Stub email provider."""
-
-    @staticmethod
-    def send(recipient: str, subject: str, body: str) -> bool:
-        logger.info(f"[EMAIL] To: {recipient} Subject: {subject} Body: {body}")
-        return True
-
-
-class SMSProvider:
-    """Stub SMS provider."""
-
-    @staticmethod
-    def send(recipient: str, body: str) -> bool:
-        logger.info(f"[SMS] To: {recipient} Body: {body}")
-        return True
-
-
 class NotificationService:
-    """Sends notifications for financial events."""
+    """Sends notifications for financial events.
 
-    def __init__(self):
-        self.email_provider = EmailProvider()
-        self.sms_provider = SMSProvider()
+    Architecture:
+        NotificationService
+          ├ EmailProvider  (SMTP when configured, else a logging fallback)
+          └ SmsProvider    (Twilio when configured, else a logging fallback)
+    """
+
+    def __init__(self, config=None, sms_provider=None, email_provider=None):
+        config = config or {}
+        self.email_provider = email_provider or build_email_provider(config)
+        self.sms_provider = sms_provider or build_sms_provider(config)
+        self.default_recipient = config.get(
+            "NOTIFICATION_DEFAULT_RECIPIENT", "stub-phone"
+        )
 
     def send_email(
         self,
@@ -57,10 +51,11 @@ class NotificationService:
     def send_sms(
         self,
         user_id: str,
-        recipient: str,
+        recipient: str | None,
         body: str,
         correlation_id: str | None = None,
     ) -> Notification:
+        recipient = recipient or self.default_recipient
         success = self.sms_provider.send(recipient, body)
         notif = Notification(
             user_id=user_id,
@@ -83,13 +78,13 @@ class NotificationService:
 
         self.send_sms(
             user_id=sender_id,
-            recipient="stub-phone",
+            recipient=None,
             body=f"You sent {amount} {currency} successfully.",
             correlation_id=event.correlation_id,
         )
         self.send_sms(
             user_id=receiver_id,
-            recipient="stub-phone",
+            recipient=None,
             body=f"You received {amount} {currency}.",
             correlation_id=event.correlation_id,
         )
@@ -102,7 +97,8 @@ class NotificationService:
 
         self.send_sms(
             user_id=account_id,
-            recipient="stub-phone",
+            # Route to the payer's phone when the deposit carried one.
+            recipient=payload.get("payer"),
             body=f"Deposit of {amount} {currency} confirmed.",
             correlation_id=event.correlation_id,
         )
@@ -113,7 +109,7 @@ class NotificationService:
 
         self.send_sms(
             user_id="unknown",
-            recipient="stub-phone",
+            recipient=None,
             body=f"Transfer {txn_id} failed.",
             correlation_id=event.correlation_id,
         )
@@ -124,7 +120,7 @@ class NotificationService:
 
         self.send_sms(
             user_id="unknown",
-            recipient="stub-phone",
+            recipient=None,
             body=f"Transaction {txn_id} was reversed.",
             correlation_id=event.correlation_id,
         )

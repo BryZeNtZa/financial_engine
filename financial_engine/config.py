@@ -44,6 +44,22 @@ class Config:
     OM_NOTIF_URL = os.environ.get("OM_NOTIF_URL")
     OM_LANG = os.environ.get("OM_LANG", "fr")
 
+    # Notifications — SMS via Twilio (falls back to logging when unset)
+    TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+    TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")
+    NOTIFICATION_DEFAULT_RECIPIENT = os.environ.get(
+        "NOTIFICATION_DEFAULT_RECIPIENT", "stub-phone"
+    )
+
+    # Notifications — email via SMTP (falls back to logging when SMTP_HOST unset)
+    SMTP_HOST = os.environ.get("SMTP_HOST")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+    SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+    SMTP_FROM_ADDRESS = os.environ.get("SMTP_FROM_ADDRESS")
+    SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
+
 
 class TestConfig(Config):
     TESTING = True

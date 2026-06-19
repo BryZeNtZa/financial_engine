@@ -5,6 +5,8 @@ from financial_engine.extensions import db as _db
 from financial_engine.models.account import Account
 from financial_engine.domain.events import event_bus
 from financial_engine.services.balance_cache import balance_cache
+# NOTE: notification handlers subscribed in create_app are cleared between
+# tests by the event_bus.clear() in the db fixture teardown.
 
 
 @pytest.fixture(scope="session")

@@ -63,7 +63,7 @@ def _register_event_handlers(app):
     )
     from financial_engine.services.notification_service import NotificationService
 
-    notifier = NotificationService()
+    notifier = NotificationService(config=app.config)
     event_bus.subscribe(TRANSFER_COMPLETED, notifier.handle_transfer_completed)
     event_bus.subscribe(TRANSFER_FAILED, notifier.handle_transfer_failed)
     event_bus.subscribe(DEPOSIT_COMPLETED, notifier.handle_deposit_completed)

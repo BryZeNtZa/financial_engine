@@ -220,6 +220,7 @@ class DepositService:
                     "account_id": account_id,
                     "amount": str(deposit_money.amount),
                     "currency": deposit_money.currency,
+                    "payer": meta.get("payer"),
                 },
                 correlation_id=txn.correlation_id,
             )

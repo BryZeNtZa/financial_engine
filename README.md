@@ -191,11 +191,20 @@ Hardening applied to confirmation:
 
 ## Notifications
 
-Domain events trigger notifications via:
-- `EmailProvider` (stub)
-- `SMSProvider` (stub)
+Domain events drive notifications through a `NotificationService`:
 
-Events handled: `TransferCompleted`, `TransferFailed`, `DepositCompleted`.
+```
+NotificationService
+  ├ EmailProvider   (SMTP when configured, else a logging fallback)
+  └ SmsProvider     (Twilio when configured, else a logging fallback)
+```
+
+- **SMS via Twilio**: `build_sms_provider(config)` returns a `TwilioSmsProvider` (using the `twilio` package) when `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` are set, otherwise a `LogSmsProvider` — so dev/tests run with no credentials or network.
+- **Email via SMTP**: `build_email_provider(config)` returns an `SmtpEmailProvider` (stdlib `smtplib`, works with Gmail/SES/SendGrid/Mailgun SMTP) when `SMTP_HOST` is set, otherwise a `LogEmailProvider`.
+- Each notification is persisted as a `Notification` row (`SENT` / `FAILED`) with its `correlation_id`.
+- Deposit notifications route to the **payer's phone** when the deposit carried one; otherwise `NOTIFICATION_DEFAULT_RECIPIENT` is used.
+
+Events handled: `TransferCompleted`, `TransferFailed`, `DepositCompleted`, `TransactionReversed`.
 
 ## Tradeoffs
 
