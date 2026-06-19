@@ -22,6 +22,28 @@ class Config:
     FX_RATE_CACHE_TTL = int(os.environ.get("FX_RATE_CACHE_TTL", 300))
     FX_RATE_TIMEOUT = int(os.environ.get("FX_RATE_TIMEOUT", 10))
 
+    # MTN Mobile Money (Collections / Request to Pay)
+    MOMO_SUBSCRIPTION_KEY = os.environ.get("MOMO_SUBSCRIPTION_KEY")
+    MOMO_API_USER = os.environ.get("MOMO_API_USER")
+    MOMO_API_KEY = os.environ.get("MOMO_API_KEY")
+    MOMO_TARGET_ENVIRONMENT = os.environ.get("MOMO_TARGET_ENVIRONMENT", "sandbox")
+    MOMO_BASE_URL = os.environ.get(
+        "MOMO_BASE_URL", "https://sandbox.momodeveloper.mtn.com"
+    )
+    MOMO_CALLBACK_URL = os.environ.get("MOMO_CALLBACK_URL")
+    MOMO_WEBHOOK_SECRET = os.environ.get("MOMO_WEBHOOK_SECRET")
+
+    # Orange Money (Web Payment)
+    OM_AUTHORIZATION_HEADER = os.environ.get("OM_AUTHORIZATION_HEADER")
+    OM_MERCHANT_KEY = os.environ.get("OM_MERCHANT_KEY")
+    OM_ENVIRONMENT = os.environ.get("OM_ENVIRONMENT", "dev")
+    OM_BASE_URL = os.environ.get("OM_BASE_URL", "https://api.orange.com")
+    OM_CURRENCY = os.environ.get("OM_CURRENCY", "XOF")
+    OM_RETURN_URL = os.environ.get("OM_RETURN_URL")
+    OM_CANCEL_URL = os.environ.get("OM_CANCEL_URL")
+    OM_NOTIF_URL = os.environ.get("OM_NOTIF_URL")
+    OM_LANG = os.environ.get("OM_LANG", "fr")
+
 
 class TestConfig(Config):
     TESTING = True
