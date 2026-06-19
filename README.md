@@ -167,7 +167,16 @@ Per-currency totals:
   EUR:  -92 +  92 = 0 ✓
 ```
 
-Exchange rates are provided by a stub service (easily replaceable with a real API).
+### FX Rate Integration
+
+Rates come from a real third-party API behind a pluggable, cached source layer (`fx_rate_provider.py`):
+
+- **`CurrencyApiSource`** — the free, no-key currency-api (default).
+- **`ExchangeRateApiSource`** — ExchangeRate-API v6 keyed endpoint (`GET /v6/{key}/latest/{base}` → `conversion_rates`), used when `FX_PROVIDER=exchangerate` and `FX_API_KEY` are set.
+
+`build_rate_source(config)` selects the source. The `FXRateProvider` facade caches rates in-memory (TTL `FX_RATE_CACHE_TTL`, default 5 min) and **falls back to static rates** when the API is unreachable, so the engine keeps working offline. All pairs are normalized through a single EUR base.
+
+Endpoints: `GET /fx/rate`, `GET /fx/convert?from=USD&to=EUR&amount=100` (→ `converted_amount`), `POST /fx/transfer`.
 
 ## Payment Provider Integration (Deposits)
 

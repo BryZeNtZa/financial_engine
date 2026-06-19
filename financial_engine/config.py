@@ -15,7 +15,12 @@ class Config:
     BALANCE_CACHE_ENABLED = os.environ.get("BALANCE_CACHE_ENABLED", "true").lower() == "true"
     BALANCE_CACHE_TTL = int(os.environ.get("BALANCE_CACHE_TTL", 300))
 
-    # Third-party FX rate API (currency-api)
+    # Third-party FX rate API.
+    # FX_PROVIDER selects the source: "currency_api" (free, default) or
+    # "exchangerate" (ExchangeRate-API v6, requires FX_API_KEY).
+    FX_PROVIDER = os.environ.get("FX_PROVIDER", "currency_api")
+    FX_API_KEY = os.environ.get("FX_API_KEY")
+    FX_API_URL = os.environ.get("FX_API_URL")  # optional base-url override (exchangerate)
     FX_RATE_API_URL = os.environ.get(
         "FX_RATE_API_URL", "https://latest.currency-api.pages.dev/v1/currencies"
     )
